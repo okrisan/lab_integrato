@@ -23,3 +23,16 @@ credentials
 .DS_Store
 Thumbs.db
 .vscode/
+
+
+# Ignora chiavi private e file di stato Terraform
+*.pem
+*.key
+id_ed25519*
+nitech_lab*
+keys/
+*.tfstate
+*.tfstate.*
+tfplan
+# Ignora il file generato con gli IP reali dell'infrastruttura
+inventory.ini

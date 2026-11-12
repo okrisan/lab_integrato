@@ -3,7 +3,7 @@ resource "aws_instance" "waf" {
   instance_type          = "t3.micro"
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.waf_sg.id]
-  key_name               = "vockey"
+  key_name = var.ssh_key_name
   iam_instance_profile   = "LabInstanceProfile"
 
   root_block_device {
@@ -21,9 +21,9 @@ resource "aws_instance" "siem" {
   instance_type          = "t3.medium"
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.siem_sg.id]
-  key_name               = "vockey"
+  key_name = var.ssh_key_name
   iam_instance_profile   = "LabInstanceProfile"
-
+  
   root_block_device {
     volume_size = 30
     volume_type = "gp2"
@@ -39,7 +39,7 @@ resource "aws_instance" "target" {
   instance_type          = "t3.micro"
   subnet_id              = aws_subnet.private.id
   vpc_security_group_ids = [aws_security_group.target_sg.id]
-  key_name               = "vockey"
+  key_name = var.ssh_key_name
   iam_instance_profile   = "LabInstanceProfile"
 
   root_block_device {
