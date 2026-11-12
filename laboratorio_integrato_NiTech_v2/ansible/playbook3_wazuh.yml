@@ -22,7 +22,7 @@
   hosts: waf, target
   become: yes
   vars:
-    siem_private_ip: "<SIEM_PRIVATE_IP>"
+    #siem_private_ip: "<SIEM_PRIVATE_IP>"
   tasks:
     - name: Aggiungi chiave GPG Wazuh
       apt_key:

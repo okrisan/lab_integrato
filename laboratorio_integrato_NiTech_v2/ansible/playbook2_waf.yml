@@ -3,7 +3,7 @@
   hosts: waf
   become: yes
   vars:
-    target_private_ip: "<TARGET_PRIVATE_IP>"
+    #target_private_ip: "<TARGET_PRIVATE_IP>"
   tasks:
     - name: Installa Nginx, modulo ModSecurity v3 e Git
       apt:
