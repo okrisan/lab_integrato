@@ -1,0 +1,95 @@
+---
+- name: Configurazione WAF Nginx con ModSecurity v3 e OWASP CRS (Default Off per Fase 1)
+  hosts: waf
+  become: yes
+  vars:
+    target_private_ip: "<TARGET_PRIVATE_IP>"
+  tasks:
+    - name: Installa Nginx, modulo ModSecurity v3 e Git
+      apt:
+        name:
+          - nginx
+          - libnginx-mod-http-modsecurity
+          - git
+        state: present
+        update_cache: yes
+
+    - name: Crea directory /etc/modsecurity
+      file:
+        path: /etc/modsecurity
+        state: directory
+        mode: '0755'
+
+    - name: Scarica configurazione consigliata ModSecurity
+      get_url:
+        url: https://raw.githubusercontent.com/owasp-modsecurity/ModSecurity/v3/master/modsecurity.conf-recommended
+        dest: /etc/modsecurity/modsecurity.conf
+        mode: '0644'
+
+    - name: Scarica unicode.mapping per ModSecurity
+      get_url:
+        url: https://raw.githubusercontent.com/owasp-modsecurity/ModSecurity/v3/master/unicode.mapping
+        dest: /etc/modsecurity/unicode.mapping
+        mode: '0644'
+
+    - name: Pre-crea file di audit log ModSecurity con permessi per Nginx (www-data)
+      file:
+        path: /var/log/modsec_audit.log
+        state: touch
+        owner: www-data
+        group: adm
+        mode: '0640'
+
+    - name: Imposta SecRuleEngine su Off (FASE 1 - Pass-Through senza filtro)
+      lineinfile:
+        path: /etc/modsecurity/modsecurity.conf
+        regexp: '^SecRuleEngine'
+        line: 'SecRuleEngine Off'
+
+    - name: Clona OWASP ModSecurity Core Rule Set (CRS v4)
+      git:
+        repo: 'https://github.com/coreruleset/coreruleset.git'
+        dest: /etc/modsecurity/crs
+        version: v4.0/main
+        force: yes
+
+    - name: Configura crs-setup.conf
+      copy:
+        src: /etc/modsecurity/crs/crs-setup.conf.example
+        dest: /etc/modsecurity/crs/crs-setup.conf
+        remote_src: yes
+        force: no
+
+    - name: Includi OWASP CRS in ModSecurity
+      blockinfile:
+        path: /etc/modsecurity/modsecurity.conf
+        block: |
+          Include /etc/modsecurity/crs/crs-setup.conf
+          Include /etc/modsecurity/crs/rules/*.conf
+
+    - name: Configura Nginx come Reverse Proxy
+      copy:
+        dest: /etc/nginx/sites-available/default
+        content: |
+          server {
+              listen 80 default_server;
+              listen [::]:80 default_server;
+
+              server_name _;
+
+              modsecurity on;
+              modsecurity_rules_file /etc/modsecurity/modsecurity.conf;
+
+              location / {
+                  proxy_pass http://{{ target_private_ip }}:3000;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              }
+          }
+
+    - name: Riavvia Nginx
+      systemd:
+        name: nginx
+        state: restarted
+        enabled: yes

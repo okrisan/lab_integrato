@@ -1,0 +1,15 @@
+---
+- name: FASE 1 - Disattiva policy WAF (Modalita Pass-Through / Vulnerabile)
+  hosts: waf
+  become: yes
+  tasks:
+    - name: Imposta SecRuleEngine su Off
+      lineinfile:
+        path: /etc/modsecurity/modsecurity.conf
+        regexp: '^SecRuleEngine'
+        line: 'SecRuleEngine Off'
+
+    - name: Riavvia Nginx per applicare la modifica
+      systemd:
+        name: nginx
+        state: restarted

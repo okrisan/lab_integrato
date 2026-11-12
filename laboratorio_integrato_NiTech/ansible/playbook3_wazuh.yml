@@ -1,0 +1,64 @@
+---
+- name: Deploy Wazuh SIEM Server (All-in-One)
+  hosts: siem
+  become: yes
+  tasks:
+    - name: Scarica ed esegui Wazuh Installation Assistant
+      shell: |
+        curl -sO https://packages.wazuh.com/4.7/wazuh-install.sh
+        bash ./wazuh-install.sh -a -i > /root/wazuh-passwords.txt
+      args:
+        creates: /root/wazuh-passwords.txt
+
+    - name: Estrai password admin di Wazuh Dashboard
+      shell: grep "User: admin" -A 1 /root/wazuh-passwords.txt | tail -n 1 | awk '{print $2}'
+      register: wazuh_password
+
+    - name: Mostra credenziali di accesso Wazuh
+      debug:
+        msg: "Wazuh Dashboard URL: https://{{ ansible_host }} | User: admin | Password: {{ wazuh_password.stdout }}"
+
+- name: Deploy e Connessione Agent su WAF e Target
+  hosts: waf, target
+  become: yes
+  vars:
+    siem_private_ip: "<SIEM_PRIVATE_IP>"
+  tasks:
+    - name: Aggiungi chiave GPG Wazuh
+      apt_key:
+        url: https://packages.wazuh.com/key/GPG-KEY-WAZUH
+        state: present
+
+    - name: Aggiungi repository Wazuh
+      apt_repository:
+        repo: "deb https://packages.wazuh.com/4.x/apt/ stable main"
+        state: present
+
+    - name: Installa Wazuh Agent
+      apt:
+        name: wazuh-agent
+        state: present
+        update_cache: yes
+
+    - name: Configura IP del Wazuh Manager nel file ossec.conf
+      replace:
+        path: /var/ossec/etc/ossec.conf
+        regexp: '<address>127.0.0.1</address>'
+        replace: '<address>{{ siem_private_ip }}</address>'
+
+    - name: Aggiungi monitoraggio log ModSecurity (Solo su WAF)
+      blockinfile:
+        path: /var/ossec/etc/ossec.conf
+        insertbefore: '</ossec_config>'
+        block: |
+          <localfile>
+            <log_format>syslog</log_format>
+            <location>/var/log/modsec_audit.log</location>
+          </localfile>
+      when: "'waf' in group_names"
+
+    - name: Abilita ed avvia Wazuh Agent
+      systemd:
+        name: wazuh-agent
+        state: restarted
+        enabled: yes
