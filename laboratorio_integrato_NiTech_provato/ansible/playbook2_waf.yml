@@ -1,0 +1,132 @@
+---
+- name: Configurazione WAF Nginx con ModSecurity v3 e OWASP CRS (Default Off per Fase 1)
+  hosts: waf
+  become: yes
+  tasks:
+    - name: Abilita repository universe
+      apt_repository:
+        repo: "deb http://archive.ubuntu.com/ubuntu {{ ansible_distribution_release }} universe"
+        state: present
+
+    - name: Installa Nginx, libmodsecurity e dipendenze di compilazione
+      apt:
+        name:
+          - nginx
+          - libmodsecurity3
+          - libmodsecurity-dev
+          - git
+          - build-essential
+          - libpcre3-dev
+          - zlib1g-dev
+          - libssl-dev
+          - curl
+        state: present
+        update_cache: yes
+
+    - name: Compila il modulo dinamico ModSecurity-nginx
+      shell: |
+        NGINX_VER=$(nginx -v 2>&1 | grep -oP '(?<=nginx/)[0-9.]+')
+        cd /tmp
+        curl -sL "https://nginx.org/download/nginx-${NGINX_VER}.tar.gz" | tar xz
+        rm -rf /tmp/ModSecurity-nginx
+        git clone --depth 1 https://github.com/owasp-modsecurity/ModSecurity-nginx.git /tmp/ModSecurity-nginx
+        cd "/tmp/nginx-${NGINX_VER}"
+        ./configure --with-compat --add-dynamic-module=/tmp/ModSecurity-nginx
+        make modules
+        cp objs/ngx_http_modsecurity_module.so /usr/lib/nginx/modules/
+      args:
+        creates: /usr/lib/nginx/modules/ngx_http_modsecurity_module.so
+
+    - name: Abilita il modulo ModSecurity in Nginx
+      copy:
+        dest: /etc/nginx/modules-enabled/50-mod-http-modsecurity.conf
+        content: |
+          load_module /usr/lib/nginx/modules/ngx_http_modsecurity_module.so;
+        mode: '0644'
+
+    - name: Crea directory /etc/modsecurity
+      file:
+        path: /etc/modsecurity
+        state: directory
+        mode: '0755'
+
+    - name: Scarica configurazione consigliata ModSecurity (v3.0.6 compatibile con Ubuntu 22.04)
+      get_url:
+        url: https://raw.githubusercontent.com/owasp-modsecurity/ModSecurity/v3.0.6/modsecurity.conf-recommended
+        dest: /etc/modsecurity/modsecurity.conf
+        force: yes
+        mode: '0644'
+
+    - name: Scarica unicode.mapping per ModSecurity (v3.0.6)
+      get_url:
+        url: https://raw.githubusercontent.com/owasp-modsecurity/ModSecurity/v3.0.6/unicode.mapping
+        dest: /etc/modsecurity/unicode.mapping
+        force: yes
+        mode: '0644'
+
+    - name: Pre-crea file di audit log ModSecurity con permessi per Nginx (www-data)
+      file:
+        path: /var/log/modsec_audit.log
+        state: touch
+        owner: www-data
+        group: adm
+        mode: '0640'
+
+    - name: Imposta SecRuleEngine su Off (FASE 1 - Pass-Through senza filtro)
+      lineinfile:
+        path: /etc/modsecurity/modsecurity.conf
+        regexp: '^SecRuleEngine'
+        line: 'SecRuleEngine Off'
+
+    - name: Clona OWASP ModSecurity Core Rule Set (CRS v3.3.5)
+      git:
+        repo: 'https://github.com/coreruleset/coreruleset.git'
+        dest: /etc/modsecurity/crs
+        version: v3.3.2
+        force: yes
+
+    - name: Configura crs-setup.conf
+      copy:
+        src: /etc/modsecurity/crs/crs-setup.conf.example
+        dest: /etc/modsecurity/crs/crs-setup.conf
+        remote_src: yes
+        force: yes
+
+    - name: Includi OWASP CRS in ModSecurity
+      blockinfile:
+        path: /etc/modsecurity/modsecurity.conf
+        block: |
+          Include /etc/modsecurity/crs/crs-setup.conf
+          Include /etc/modsecurity/crs/rules/*.conf
+
+    - name: Configura Nginx come Reverse Proxy
+      copy:
+        dest: /etc/nginx/sites-available/default
+        content: |
+          server {
+              listen 80 default_server;
+              listen [::]:80 default_server;
+
+              server_name _;
+
+              modsecurity on;
+              modsecurity_rules_file /etc/modsecurity/modsecurity.conf;
+
+              location / {
+                  proxy_pass http://{{ target_private_ip }}:3000;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              }
+          }
+
+    - name: Verifica sintassi Nginx e riavvia il servizio
+      shell: nginx -t
+      notify: Restart Nginx
+
+  handlers:
+    - name: Restart Nginx
+      systemd:
+        name: nginx
+        state: restarted
+        enabled: yes

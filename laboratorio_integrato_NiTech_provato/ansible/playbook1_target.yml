@@ -1,0 +1,56 @@
+---
+- name: Deploy OWASP Juice Shop su Target (Subnet Privata)
+  hosts: target
+  become: yes
+  tasks:
+    - name: Aggiorna cache apt e installa dipendenze
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - python3-docker
+        state: present
+        update_cache: yes
+
+    - name: Crea directory per keyring Docker
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Scarica chiave GPG di Docker
+      get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: '0644'
+
+    - name: Aggiungi repository Docker
+      apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Installa Docker Engine
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+        update_cache: yes
+
+    - name: Avvia e abilita servizio Docker
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Avvia container OWASP Juice Shop
+      community.docker.docker_container:
+        name: juiceshop
+        image: bkimminich/juice-shop:v15.0.0
+        state: started
+        restart_policy: always
+        published_ports:
+          - "3000:3000"

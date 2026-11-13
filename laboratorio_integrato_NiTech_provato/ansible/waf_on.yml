@@ -1,0 +1,15 @@
+---
+- name: FASE 2 - Attiva policy WAF (Modalita Blocking / Protetta)
+  hosts: waf
+  become: yes
+  tasks:
+    - name: Imposta SecRuleEngine su On
+      lineinfile:
+        path: /etc/modsecurity/modsecurity.conf
+        regexp: '^SecRuleEngine'
+        line: 'SecRuleEngine On'
+
+    - name: Riavvia Nginx per applicare la modifica
+      systemd:
+        name: nginx
+        state: restarted
