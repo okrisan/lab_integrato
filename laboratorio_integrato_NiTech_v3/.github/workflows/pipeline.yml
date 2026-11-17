@@ -1,0 +1,88 @@
+﻿name: Deployment Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      auto_destroy:
+        description: 'Distruggere l\'infrastruttura a fine esecuzione? (Solo per run manuale)'
+        type: boolean
+        default: false
+
+jobs:
+  deploy:
+    name: Provisioning Infrastructure & Service Configuration
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout Codice
+        uses: actions/checkout@v4
+
+      - name: Configura Credenziali AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.7
+
+      - name: Generazione Chiave SSH per la sessione CI/CD
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keygen -t ed25519 -f ~/.ssh/id_my_lab -N ""
+          chmod 600 ~/.ssh/id_my_lab
+
+      - name: Terraform Init & Apply (Infrastruttura)
+        run: |
+          cd terraform
+          terraform init
+          terraform apply -auto-approve \
+            -var="ssh_key_name=github-actions-key-${{ github.run_id }}" \
+            -var="private_key_path=~/.ssh/id_my_lab"
+
+      - name: Setup Python e Ansible
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Installazione Dipendenze Ansible
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible
+          ansible-galaxy collection install community.docker
+
+      - name: Attesa Istanze & Connectivity Ping
+        run: |
+          sleep 35
+          cd ansible
+          export ANSIBLE_HOST_KEY_CHECKING=False
+          ansible -i inventory.ini all -m ping
+
+      - name: Configurazione Target (Playbook 1 - Juice-Shop)
+        run: |
+          cd ansible
+          ansible-playbook -i inventory.ini playbook1_target.yml
+
+      - name: Configurazione WAF (Playbook 2 - Nginx & ModSecurity)
+        run: |
+          cd ansible
+          ansible-playbook -i inventory.ini playbook2_waf.yml
+
+      - name: Configurazione SIEM (Playbook 3 - Wazuh Server & Agent)
+        run: |
+          cd ansible
+          ansible-playbook -i inventory.ini playbook3_wazuh.yml
+
+      - name: Teardown Opzionale (Solo se richiesto da workflow_dispatch manuale)
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.auto_destroy == 'true' }}
+        run: |
+          cd terraform
+          terraform destroy -auto-approve \
+            -var="ssh_key_name=github-actions-key-${{ github.run_id }}" \
+            -var="private_key_path=~/.ssh/id_my_lab"

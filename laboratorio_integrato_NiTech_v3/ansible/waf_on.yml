@@ -1,0 +1,15 @@
+﻿---
+- name: Attivazione Regole di Blocco WAF ModSecurity (Fase 2)
+  hosts: waf
+  become: yes
+  tasks:
+    - name: Imposta SecRuleEngine su On
+      lineinfile:
+        path: /etc/modsecurity/modsecurity.conf
+        regexp: '^SecRuleEngine'
+        line: 'SecRuleEngine On'
+
+    - name: Riavvia Nginx per applicare le modifiche
+      systemd:
+        name: nginx
+        state: restarted
