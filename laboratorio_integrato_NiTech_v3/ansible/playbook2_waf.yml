@@ -17,6 +17,7 @@
           - git
           - build-essential
           - libpcre3-dev
+          - libpcre2-dev
           - zlib1g-dev
           - libssl-dev
           - curl
@@ -27,12 +28,13 @@
       shell: |
         NGINX_VER=$(nginx -v 2>&1 | grep -oP '(?<=nginx/)[0-9.]+')
         cd /tmp
+        rm -rf "nginx-${NGINX_VER}" /tmp/ModSecurity-nginx
         curl -sL "https://nginx.org/download/nginx-${NGINX_VER}.tar.gz" | tar xz
-        rm -rf /tmp/ModSecurity-nginx
         git clone --depth 1 https://github.com/owasp-modsecurity/ModSecurity-nginx.git /tmp/ModSecurity-nginx
         cd "/tmp/nginx-${NGINX_VER}"
         ./configure --with-compat --add-dynamic-module=/tmp/ModSecurity-nginx
         make modules
+        mkdir -p /usr/lib/nginx/modules
         cp objs/ngx_http_modsecurity_module.so /usr/lib/nginx/modules/
       args:
         creates: /usr/lib/nginx/modules/ngx_http_modsecurity_module.so
